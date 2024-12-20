@@ -7,7 +7,23 @@
 #include <vector>
 #include "config.h"
 #include "weather_functions.h"
-#include "tomorrow_weather_functions.h"   
+#include "tomorrow_weather_functions.h"
+
+// ---------------------------------------------------------
+#include <DHT.h>
+#include <DHT_U.h>
+
+// Define DHT settings
+#define DHTPIN 27
+#define DHTTYPE DHT11 
+DHT dht(DHTPIN, DHTTYPE);  // Create a DHT object
+
+float dht_temperature = 0.0;
+float dht_humidity = 0.0;
+
+// ---------------------------------------------------------
+
+
 
 std::vector<float> tomorrowTemperatures; 
 std::vector<String> weather_descriptions_tomorrow;
@@ -32,6 +48,10 @@ void log_print(lv_log_level_t level, const char * buf) {
   Serial.flush();
 }
 
+
+static lv_obj_t * text_label_local_temp;
+static lv_obj_t * text_label_local_hum;
+
 static lv_obj_t * text_label_date;
 static lv_obj_t * text_label_temperature;
 static lv_obj_t * text_label_humidity;
@@ -50,6 +70,12 @@ static lv_obj_t * text_label_wifi_ssid;
 
 static void timer_cb(lv_timer_t * timer){
   LV_UNUSED(timer);
+  // Read DHT data
+  read_dht_data();
+
+  // Update DHT display
+  update_dht_display();
+
   get_weather_data();
   get_weather_description(weather_code);
   lv_label_set_text(text_label_date, current_date.c_str());
@@ -117,18 +143,6 @@ void lv_create_main_gui(void) {
   lv_obj_set_size(rect3, 308, 58);  // Width, Height
   lv_obj_set_pos(rect3, 5, 176); // Alignment
 
- // ------------------- TIME RECTANGLE --------------------------------------------------------------------
-  //static lv_style_t style_rect2;
-  //lv_style_init(&style_rect2);
-  //lv_style_set_bg_color(&style_rect2, lv_color_make(64, 64, 64)); // Replace with desired RGB color
-  //lv_style_set_bg_opa(&style_rect2, LV_OPA_COVER); // Fully opaque background
-  //lv_style_set_border_width(&style_rect2, 0); // No border
-  //lv_style_set_radius(&style_rect2, 10); // Corner radious
-  //lv_obj_t *rect2 = lv_obj_create(lv_scr_act());
-  //lv_obj_add_style(rect2, &style_rect2, 0);
-  //lv_obj_set_size(rect2, 180, 75);  // Width, Height
-  //lv_obj_set_pos(rect2, 5, 4); // Alignment
-  
  // ------------------- WEATHER IMAGE ---------------------------------------------------------------------
   weather_image = lv_image_create(lv_screen_active());
   lv_obj_set_pos(weather_image, -5, 60);
@@ -251,13 +265,26 @@ void lv_create_main_gui(void) {
     lv_obj_set_style_bg_opa(wifi_signal_bars[i], LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
   }
 
-// -------------------- WIFI SSID LABEL -------------------------------------------------------------------
+ // ------------------- WIFI SSID LABEL -------------------------------------------------------------------
   text_label_wifi_ssid = lv_label_create(lv_scr_act());
   lv_label_set_text(text_label_wifi_ssid, ("SSID: " + WiFi.SSID()).c_str()); // Initial SSID text
   lv_obj_set_pos(text_label_wifi_ssid, 130, 3);  // Position the label as needed
   lv_obj_set_style_text_font(text_label_wifi_ssid, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(text_label_wifi_ssid, lv_color_make(202, 202, 202), 0);
 
+ // ------------------- LOCAL TEMPERATURE AND HUMIDITY ---------------------------------------------------
+  text_label_local_temp = lv_label_create(lv_scr_act());
+  text_label_local_hum = lv_label_create(lv_scr_act());
+
+  lv_label_set_text(text_label_local_temp, String("Temp: " + String(dht_temperature) + degree_symbol).c_str());
+  lv_obj_set_pos(text_label_local_temp, 190, 30); 
+  lv_obj_set_style_text_font(text_label_local_temp, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(text_label_local_temp, lv_color_make(202, 202, 202), 0);
+
+  lv_label_set_text(text_label_local_hum, String("Hum: " + String(dht_humidity) + "%").c_str());
+  lv_obj_set_pos(text_label_local_hum, 190, 50);
+  lv_obj_set_style_text_font(text_label_local_hum, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(text_label_local_hum, lv_color_make(202, 202, 202), 0); 
 }
 
 void update_time_label() {
@@ -335,10 +362,35 @@ void update_wifi_signal() {
   lv_label_set_text(text_label_wifi_ssid, ("SSID: " + WiFi.SSID()).c_str());
 }
 
+void read_dht_data() {
+  float temp = dht.readTemperature();
+  float hum = dht.readHumidity();
+  if (isnan(temp) || isnan(hum)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  dht_temperature = temp;
+  dht_humidity = hum;
+
+  Serial.print("Temperature: ");
+  Serial.print(dht_temperature);
+  Serial.print("°C  Hum: ");
+  Serial.print(dht_humidity);
+  Serial.println("%");
+}
+
+void update_dht_display() {
+  lv_label_set_text(text_label_local_temp, String("Temp: " + String(dht_temperature, 1) + degree_symbol).c_str());
+  lv_label_set_text(text_label_local_hum, String("Hum: " + String(dht_humidity, 1) + "%").c_str());
+}
+
 void setup() {
   String LVGL_Arduino = String("LVGL Library Version: ") + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
   Serial.begin(115200);
   Serial.println(LVGL_Arduino);
+
+  dht.begin();
 
   connectToWiFi();
 
